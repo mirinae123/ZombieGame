@@ -18,8 +18,9 @@ public class PlayerInputManager : MonoBehaviour
         float deltaX = Input.GetAxis("Horizontal");
 
         if (Input.GetKeyDown(KeyCode.Space)) { controller.Jump(); }
+        if (Input.GetAxisRaw("Vertical") < 0) { controller.DownJump(); }
         if (Input.GetKeyDown(KeyCode.F)) { controller.Vault(deltaX); }
 
-        controller.Move(deltaX, Time.deltaTime);
+        controller.Move(deltaX);
     }
 }
