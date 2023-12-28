@@ -2,18 +2,17 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-[RequireComponent(typeof(PlayerController))]
+[RequireComponent(typeof(PlayerController))]    //PlayerInputManager를 가진 오브젝트는 반드시 PlayerController도 같이 가지고 있어야
 public class PlayerInputManager : MonoBehaviour
 {
     private PlayerController controller;
 
-    // Start is called before the first frame update
     void Start()
     {
         controller = GetComponent<PlayerController>();
     }
 
-    // Update is called once per frame
+
     void Update()
     {
         float deltaX = Input.GetAxis("Horizontal");
