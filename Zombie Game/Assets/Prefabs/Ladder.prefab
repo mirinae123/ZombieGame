@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 6589797858392323487}
   m_Layer: 0
   m_Name: Ladder
-  m_TagString: Climbable
+  m_TagString: Ladder
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0

@@ -57,6 +57,10 @@ public class PlayerController : MonoBehaviour
 
     private bool canMove = true;        // 이동 가능 여부
 
+    // 사다리, 벽타기 관련 변수
+    private GameObject ladder;
+    private GameObject climbable;
+
     private void Start()
     {
         rb = GetComponent<Rigidbody2D>();
@@ -84,16 +88,49 @@ public class PlayerController : MonoBehaviour
             // 플레이어와 일반 플랫폼의 충돌 활성화
             Physics2D.IgnoreLayerCollision(LayerMask.NameToLayer("Player"), LayerMask.NameToLayer("Platform"), false);
         }
+
+        // 사다리 또는 벽을 타고 있는 중이라면
+        if (ladder || climbable)
+        {
+            // 플레이어와 일반 플랫폼의 충돌 비활성화
+            Physics2D.IgnoreLayerCollision(LayerMask.NameToLayer("Player"), LayerMask.NameToLayer("Platform"));
+        }
     }
 
     // 플레이어의 좌우 이동 적용
     // float deltaX: 플레이어의 axis 입력 값
-    public void Move(float deltaX)
+    public void Move(float deltaX, float deltaY)
     {
-        if (canMove)                                            // 움직일 수 있는 경우
+        // 경사로에서 플레이어가 미끄러지지 않도록 x 좌표 고정
+        if (deltaX == 0 && isGrounded)  // 좌우 입력 값이 없고, 지면에 접하고 있는 경우
         {
-            velocity.Set(deltaX * walkSpeed, rb.velocity.y);    // 속도 저장용 변수를 갱신한 후
-            rb.velocity = velocity;                             // rigidBody에 적용
+            // x 좌표와 z 회전 고정
+            rb.constraints = RigidbodyConstraints2D.FreezePositionX | RigidbodyConstraints2D.FreezeRotation;
+        }
+        else                            // 그 외의 경우
+        {   
+            // z 회전만 고정
+            rb.constraints = RigidbodyConstraints2D.FreezeRotation;
+        }
+
+        if (canMove)                                                // 움직일 수 있는 경우
+        {
+            if (!(ladder || climbable)) // 사다리 또는 벽을 타는 중이 아닌 경우
+            {
+                velocity.Set(deltaX * walkSpeed, rb.velocity.y);    // 속도 저장용 변수를 갱신한 후
+                rb.velocity = velocity;                             // rigidBody에 적용
+
+                if (deltaY < 0) { AttachToLadderBelow();  DownJump(); }
+                if (deltaY > 0) AttachToLadder(deltaX);
+            }
+            else                        // 사다리 또는 벽을 타고 있는 경우
+            {
+                velocity.Set(0, deltaY * walkSpeed);                // 속도 저장용 변수를 갱신한 후
+                rb.velocity = velocity;                             // rigidBody에 적용
+
+                if (ladder) MoveInsideLadder();                     // 사다리 내에서 이동
+                if (climbable) { }
+            }
         }
     }
 
@@ -152,6 +189,84 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    // 사다리에 올라타기
+    public void AttachToLadder(float deltaX = 0)
+    {
+        if (canMove && !(ladder || climbable))  // 움직일 수 있고, 기존에 사다리 또는 벽을 타고 있는 경우가 아닌 경우
+        {
+            float direction = Mathf.Sign(deltaX);                                   // 플레이어가 바라보고 있는 방향
+
+            UpdateCollisionPoints();                                                // raycast 시작점 갱신
+            Vector2[] origin = direction > 0 ? colPoints.left : colPoints.right;    // 플레이어 방향에 따라 시작점 설정
+
+            for (int i = 0; i < hRayNumber; i++)
+            {
+                // raycast 시작점으로부터, 플레이어가 바라보는 방향으로 raycast 발사
+                RaycastHit2D hit = Physics2D.Raycast(origin[i], Vector2.right * direction * (cc.bounds.size.x + .5f), cc.bounds.size.x / 2f);
+
+                if (hit && hit.collider.CompareTag("Ladder") && hit.distance < 1f)   // 사다리를 hit한 경우
+                {
+                    // 접지면, 접지 여부 등 변수를 초기화
+                    if (ground && ground.layer == LayerMask.NameToLayer("Contacted Platform")) ground.layer = LayerMask.NameToLayer("Platform");
+                    ground = downJumpGround = null;     
+                    isGrounded = false;
+
+                    rb.gravityScale = 0f;               // 중력 비활성화
+                    rb.velocity = Vector2.zero;         // 플레이어 속도 초기화
+                    ladder = hit.collider.gameObject;   // 현재 타고 있는 사다리를 ladder 변수에 저장
+
+                    // 플레이어의 좌표를 사다리 위치로 이동
+                    Bounds ladderBounds = ladder.GetComponent<BoxCollider2D>().bounds;
+                    float y = Mathf.Clamp(transform.position.y, ladderBounds.min.y + cc.bounds.size.y / 2f, float.MaxValue);
+                    transform.position = new Vector2(ladderBounds.center.x, y);
+
+                    return;
+                }
+            }
+        }
+    }
+
+    // 아래 키를 누르면 아래 사다리에 올라타기
+    private void AttachToLadderBelow()
+    {
+        if (canMove && !(ladder || climbable))      // 움직일 수 있고, 기존에 사다리 또는 벽을 타고 있는 경우가 아닌 경우
+        {
+            UpdateCollisionPoints();                // raycast 시작점 갱신
+            Vector2[] origin = colPoints.bottom;    // 시작점은 플레이어의 아래쪽
+
+            for (int i = 0; i < vRayNumber; i++)
+            {
+                RaycastHit2D hit = Physics2D.Raycast(origin[i], Vector2.down, 1f);
+
+                // 사다리를 hit하면 해당 사다리에 올라타기
+                if (hit && hit.collider.CompareTag("Ladder")) AttachToLadder();
+            }
+        }
+    }
+
+    // 사다리 안에서 이동
+    private void MoveInsideLadder()
+    {
+        Bounds bound = ladder.GetComponent<BoxCollider2D>().bounds;
+
+        // 플레이어가 사다리 맨위, 만아래에 도달한 경우 벗어나기
+        if ((cc.bounds.min.y >= bound.max.y) || (cc.bounds.min.y <= bound.min.y)) DetachFromLadder();
+    }
+
+    // 사다리에서 벗어나기 
+    // bool isJumping: 점프로 사다리에서 벗어나는지 여부
+    public void DetachFromLadder(bool isJumping = false)
+    {
+        if (canMove && ladder)  // 움직일 수 있고, 현재 사다리를 타고 있다면
+        {
+            rb.gravityScale = 3f;               // 중력 다시 적용 후
+            ladder = null;                      // ladder 변수 초기화
+
+            // 점프로 사다리에서 벗어나는 경우
+            if (isJumping) rb.AddForce(Vector2.up * jumpForce / 2f, ForceMode2D.Impulse);
+        }
+    }
+
     // 물체 뛰어넘기 관련 코루틴
     // Vector2 mid: 중간에 거치는 위치
     // Vector2 end: 최종 도착 위치
@@ -179,13 +294,15 @@ public class PlayerController : MonoBehaviour
 
         for (int i = 0; i < vRayNumber; i++)
         {
-            // 플레이어의 아래쪽으로부터, 위 방향으로, 캡슐 콜라이더의 2배 거리만큼 raycast 발사
-            RaycastHit2D topHit = Physics2D.Raycast(colPoints.bottom[i], Vector2.up, cc.bounds.size.y * 2, LayerMask.GetMask("Platform"));
+            // 플레이어의 위쪽으로부터, 아래 방향으로, 캡슐 콜라이더의 y 거리만큼 raycast 발사
+            RaycastHit2D topHit = Physics2D.Raycast(colPoints.top[i], Vector2.down, cc.size.y, LayerMask.GetMask("Platform"));
             // 플레이어의 아래쪽으로부터, 아래 방향으로, 1f 거리만큼 raycast 발사
             RaycastHit2D bottomHit = Physics2D.Raycast(colPoints.bottom[i], Vector2.down, 1f, LayerMask.GetMask("Platform"));
 
+            float topRayThres = (cc.bounds.center.y - colPoints.bottom[i].y) * 2f + colPadding;
+
             // 위에 있는 플랫폼은 충돌 비활성화
-            if (topHit) topHit.collider.gameObject.GetComponent<BoxCollider2D>().isTrigger = true;
+            if (topHit && topHit.distance < topRayThres) topHit.collider.gameObject.GetComponent<BoxCollider2D>().isTrigger = true;
             // 아래에 있으면서, 일시적으로 충돌이 비활성화된 플랫폼(downJumpGround)가 아니라면 충돌 활성화
             if (bottomHit && bottomHit.collider.gameObject != downJumpGround) bottomHit.collider.gameObject.GetComponent<BoxCollider2D>().isTrigger = false;
         }
@@ -208,11 +325,11 @@ public class PlayerController : MonoBehaviour
             // 캡슐 콜라이더의 형태에 맞게 x 좌표 계산
             if (y < (bound.min.y + bound.size.x / 2f))
             {
-                x = Mathf.Sqrt(Mathf.Pow(bound.size.x / 2f, 2) - Mathf.Pow(bound.min.y + bound.size.x / 2f - y, 2)) - colPadding;
+                x = Mathf.Sqrt(Mathf.Abs(Mathf.Pow(bound.size.x / 2f, 2) - Mathf.Pow(bound.min.y + bound.size.x / 2f - y, 2))) - colPadding;
             }
             else if (y > (bound.max.y - +bound.size.x / 2f))
             {
-                x = Mathf.Sqrt(Mathf.Pow(bound.size.x / 2f, 2) - Mathf.Pow(y - bound.max.y + bound.size.x / 2f, 2)) - colPadding;
+                x = Mathf.Sqrt(Mathf.Abs(Mathf.Pow(bound.size.x / 2f, 2) - Mathf.Pow(y - bound.max.y + bound.size.x / 2f, 2))) - colPadding;
             }
             else
             {
@@ -231,7 +348,7 @@ public class PlayerController : MonoBehaviour
 
             // x, y 좌표 계산
             x = bound.min.x + vRaySpacing * i;
-            y = Mathf.Sqrt(Mathf.Pow(bound.size.x / 2f, 2) - Mathf.Pow(Mathf.Abs(x - bound.center.x), 2)) - colPadding;
+            y = Mathf.Sqrt(Mathf.Abs(Mathf.Pow(bound.size.x / 2f, 2) - Mathf.Pow(Mathf.Abs(x - bound.center.x), 2))) - colPadding;
 
             // 시작점 저장
             colPoints.top[i].Set(x, bound.max.y - (bound.size.x / 2f) + y);
@@ -244,13 +361,15 @@ public class PlayerController : MonoBehaviour
     // 착지 여부 판단, 아래 점프로 인해 비활성된 플랫폼 갱신
     private void OnCollisionEnter2D(Collision2D collision)
     {
+        if (ladder || climbable) return;
+
         List<ContactPoint2D> contactPoints = new List<ContactPoint2D>();    // 접촉 지점 저장용 변수
         collision.GetContacts(contactPoints);                               // 접촉 지점 저장
         Vector2 point = contactPoints[0].point;                             // 접촉 지점 위치
 
         // 플레이어가 착지 여부 판정
         // 접촉 지점의 x 좌표가 플레이어 안쪽에 있고, 접촉 지점의 y 좌표가 플레이어 아래에 있는 경우 성공
-        if (point.x >= cc.bounds.min.x && point.x <= cc.bounds.max.x && point.y <= transform.position.y)
+        if (point.x >= cc.bounds.min.x && point.x <= cc.bounds.max.x && point.y < transform.position.y)
         {
             isGrounded = true;                      // 접지 여부 갱신
             ground = collision.collider.gameObject; // 접지면 저장
@@ -265,7 +384,7 @@ public class PlayerController : MonoBehaviour
                 downJumpGround = null;                                          // 변수 초기화
             }
 
-            rb.gravityScale = 5f;   // 공중에 있을 때는 중력 감소
+            rb.gravityScale = 5f;   // 땅에서는 중력 증가
         }
     }
 
