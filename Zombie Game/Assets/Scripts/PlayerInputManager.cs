@@ -18,8 +18,15 @@ public class PlayerInputManager : MonoBehaviour
         float deltaX = Input.GetAxis("Horizontal");
         float deltaY = Input.GetAxis("Vertical");
 
-        if (Input.GetKeyDown(KeyCode.Space)) { controller.Jump(); controller.DetachFromLadder(true); }
-        if (Input.GetKeyDown(KeyCode.F)) { controller.Vault(deltaX); }
+        if (Input.GetKeyDown(KeyCode.Space))
+        {
+            controller.Jump();
+            if (deltaX != 0) controller.DetachFromLadder(true);
+        }
+        if (Input.GetKeyDown(KeyCode.F))
+        {
+            controller.Vault(deltaX);
+        }
 
         controller.Move(deltaX, deltaY);
     }
